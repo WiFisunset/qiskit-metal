@@ -11,9 +11,7 @@
 # Any modifications or derivative works of this code must retain this
 # copyright notice, and modified files need to carry a notice indicating
 # that they have been altered from the originals.
-'''
-QQ3DRenderer
-'''
+"""QQ3DRenderer."""
 
 from typing import List, Union
 
@@ -31,8 +29,7 @@ from qiskit_metal.toolbox_metal.parsing import is_true
 
 
 class QQ3DRenderer(QAnsysRenderer):
-    """
-    Subclass of QAnsysRenderer for running Q3D simulations.
+    """Subclass of QAnsysRenderer for running Q3D simulations.
 
     QAnsysRenderer Default Options:
         * Lj: '10nH' -- Lj has units of nanoHenries (nH)
@@ -73,8 +70,8 @@ class QQ3DRenderer(QAnsysRenderer):
                  initiate=True,
                  render_template: Dict = None,
                  render_options: Dict = None):
-        """
-        Create a QRenderer for Q3D simulations, subclassed from QAnsysRenderer.
+        """Create a QRenderer for Q3D simulations, subclassed from
+        QAnsysRenderer.
 
         Args:
             design (QDesign): Use QGeometry within QDesign to obtain elements for Ansys.
@@ -107,10 +104,10 @@ class QQ3DRenderer(QAnsysRenderer):
                       selection: Union[list, None] = None,
                       open_pins: Union[list, None] = None,
                       box_plus_buffer: bool = True):
-        """
-        Initiate rendering of components in design contained in selection, assuming they're valid.
-        Components are rendered before the chips they reside on, and subtraction of negative shapes
-        is performed at the very end.
+        """Initiate rendering of components in design contained in selection,
+        assuming they're valid. Components are rendered before the chips they
+        reside on, and subtraction of negative shapes is performed at the very
+        end.
 
         Chip_subtract_dict consists of component names (keys) and a set of all elements within each component that
         will eventually be subtracted from the ground plane. Add objects that are perfect conductors and/or have
@@ -146,8 +143,8 @@ class QQ3DRenderer(QAnsysRenderer):
         self.assign_nets()
 
     def render_tables(self, selection: Union[list, None] = None):
-        """
-        Render components in design grouped by table type (path or poly, but not junction).
+        """Render components in design grouped by table type (path or poly, but
+        not junction).
 
         Args:
             selection (Union[list, None], optional): List of components to render. Defaults to None.
@@ -165,9 +162,9 @@ class QQ3DRenderer(QAnsysRenderer):
                               material_type: str = 'pec',
                               thickness: str = '200 nm',
                               name: str = None):
-        """
-        Assign thin conductor property to all exported shapes.
-        Unless otherwise specified, all 2-D shapes are pec's with a thickness of 200 nm.
+        """Assign thin conductor property to all exported shapes. Unless
+        otherwise specified, all 2-D shapes are pec's with a thickness of 200
+        nm.
 
         Args:
             objects (List[str]): List of components that are thin conductors with the given properties.
@@ -183,18 +180,16 @@ class QQ3DRenderer(QAnsysRenderer):
         ])
 
     def assign_nets(self):
-        """
-        Auto assign nets to exported shapes.
-        """
+        """Auto assign nets to exported shapes."""
         self.boundaries.AutoIdentifyNets()
 
     def activate_q3d_setup(self, setup_name_activate: str = None):
-        """For active design, either get existing setup, make new setup with name, 
-        or make new setup with default name.
+        """For active design, either get existing setup, make new setup with
+        name, or make new setup with default name.
 
         Args:
-            setup_name_activate (str, optional): If name exists for setup, then have pinfo reference it. 
-            If name for setup does not exist, create a new setup with the name.  If name is None, 
+            setup_name_activate (str, optional): If name exists for setup, then have pinfo reference it.
+            If name for setup does not exist, create a new setup with the name.  If name is None,
             create a new setup with default name.
         """
         if self.pinfo:
@@ -242,9 +237,8 @@ class QQ3DRenderer(QAnsysRenderer):
                       auto_increase_solution_order: bool = None,
                       solution_order: str = None,
                       solver_type: str = None):
-        """
-        Create a solution setup in Ansys Q3D. If user does not provide arguments, 
-        they will be obtained from q3d_options dict. 
+        """Create a solution setup in Ansys Q3D. If user does not provide
+        arguments, they will be obtained from q3d_options dict.
 
         Args:
             freq_ghz (float, optional): Frequency in GHz. Defaults to 5..
@@ -305,9 +299,131 @@ class QQ3DRenderer(QAnsysRenderer):
                     solution_order=solution_order,
                     solver_type=solver_type)
 
-    def analyze_setup(self, setup_name: str):
+    def edit_q3d_setup(self, setup_args: Dict):
+        """User can pass key/values to edit the setup for active q3d setup.  
+
+        Args:
+            setup_args (Dict): a Dict with possible keys/values.
+
+        **setup_args** dict contents:
+            * freq_ghz (float, optional): Frequency in GHz. Defaults to 5..
+            * name (str, optional): Name of solution setup. Defaults to "Setup".
+            * max_passes (int, optional): Maximum number of passes. Defaults to 15.
+            * min_passes (int, optional): Minimum number of passes. Defaults to 2.
+            * percent_error (float, optional): Error tolerance as a percentage. Defaults to 0.5.
+
+            Note, that these 7 arguments are currently NOT implemented:
+            Ansys API named EditSetup requires all arguments to be passed, but
+            presently have no way to read all of the setup.  
+            Also, self.pinfo.setup does not have all the @property variables 
+            used for Setup. 
+            * save_fields (bool, optional): Whether or not to save fields. Defaults to False.
+            * enabled (bool, optional): Whether or not setup is enabled. Defaults to True.
+            * min_converged_passes (int, optional): Minimum number of converged passes. Defaults to 2.
+            * percent_refinement (int, optional): Refinement as a percentage. Defaults to 30.
+            * auto_increase_solution_order (bool, optional): Whether or not to increase solution order automatically. Defaults to True.
+            * solution_order (str, optional): Solution order. Defaults to 'High'.
+            * solver_type (str, optional): Solver type. Defaults to 'Iterative'.
         """
-        Run a specific solution setup in Ansys Q3D.
+
+        if self.pinfo:
+            if self.pinfo.project:
+                if self.pinfo.design:
+                    if self.pinfo.design.solution_type == 'Q3D':
+                        if self.pinfo.setup_name != setup_args.name:
+                            self.design.logger.warning(
+                                f'The name of active setup={self.pinfo.setup_name} does not match'
+                                f'the name of of setup_args.name={setup_args.name}. '
+                                f'To use this method, activate the desired Setup before editing it. '
+                                f'The setup_args was not used to update the active Setup.'
+                            )
+                            return
+
+                        for key, value in setup_args.items():
+                            if key == "name":
+                                continue  #Checked for above.
+                            if key == "freq_ghz":
+                                if not isinstance(value, float):
+                                    self.logger.warning(
+                                        'The value for min_freq_ghz should be a '
+                                        f'float.  The present value is {value}.'
+                                    )
+                                else:
+                                    ### This EditSetup works if we change all of the arguments
+                                    # at the same time.  We don't always want to change all of them.
+                                    # Need to have a way to read all of the arguments to
+                                    # avoid overwriting arguments. Presently, will use
+                                    # the variables set in pyEPR with @property.
+                                    # args_editsetup = [
+                                    #     f"NAME:{setup_args.name}",
+                                    #     "AdaptiveFreq:=", f"{value}GHz",
+                                    #     "SaveFields:=", False, "Enabled:=",
+                                    #     True,
+                                    #     [
+                                    #         "NAME:Cap", "MaxPass:=", 15,
+                                    #         "MinPass:=", 2, "MinConvPass:=", 2,
+                                    #         "PerError:=", 0.5, "PerRefine:=",
+                                    #         30, "AutoIncreaseSolutionOrder:=",
+                                    #         True, "SolutionOrder:=", "High",
+                                    #         "Solver Type:=", "Iterative"
+                                    #     ]
+                                    # ]
+                                    # self.pinfo.design._setup_module.EditSetup(
+                                    #     setup_args.name, args_editsetup)
+                                    self.pinfo.setup.frequency = f"{value}GHz"
+                                    continue
+                            if key == 'max_passes':
+                                if not isinstance(value, int):
+                                    self.logger.warning(
+                                        'The value for max_passes should be an int. '
+                                        f'The present value is {value}.')
+                                else:
+                                    self.pinfo.setup.max_pass = value
+                                    continue
+
+                            if key == 'min_passes':
+                                if not isinstance(value, int):
+                                    self.logger.warning(
+                                        'The value for min_passes should be an int. '
+                                        f'The present value is {value}.')
+                                else:
+                                    self.pinfo.setup.min_pass = value
+                                    continue
+
+                            if key == 'percent_error':
+                                if not isinstance(value, float):
+                                    self.logger.warning(
+                                        'The value for percent_error should be a float. '
+                                        f'The present value is {value}.')
+                                else:
+                                    self.pinfo.setup.pct_error = value
+                                    continue
+
+                            self.design.logger.warning(
+                                f'In setup_args, key={key}, value={value} is not in pinfo.setup, '
+                                'the key/value pair from setup_args not added to Setup in Ansys.'
+                            )
+
+                    else:
+                        self.logger.warning(
+                            'The design does not have solution type as "Q3D". The Setup not updated.'
+                        )
+                else:
+                    self.logger.warning(
+                        'A design is not in active project. The Setup not updated.'
+                    )
+            else:
+                self.logger.warning(
+                    "Project not available, have you opened a project? Setup not updated."
+                )
+        else:
+            self.logger.warning(
+                "Have you run connect_ansys()?  "
+                "Cannot find a reference to Ansys in QRenderer. Setup not updated. "
+            )
+
+    def analyze_setup(self, setup_name: str):
+        """Run a specific solution setup in Ansys Q3D.
 
         Args:
             setup_name (str): Name of setup.
@@ -320,9 +436,8 @@ class QQ3DRenderer(QAnsysRenderer):
                                variation: str = '',
                                solution_kind: str = 'LastAdaptive',
                                pass_number: int = 3):
-        """
-        Obtain capacitance matrix in a dataframe format.
-        Must be executed *after* analyze_setup.
+        """Obtain capacitance matrix in a dataframe format. Must be executed
+        *after* analyze_setup.
 
         Args:
             variation (str, optional): An empty string returns nominal variation. Otherwise need the list. Defaults to ''
@@ -356,9 +471,9 @@ class QQ3DRenderer(QAnsysRenderer):
                                     maxPass: int,
                                     variation: str = '',
                                     g_scale: float = 1) -> dict:
-        """
-        Obtain dictionary composed of pass numbers (keys) and their respective capacitance matrices (values).
-        All capacitance matrices utilize the same values for Lj_nH and onwards in the list of arguments.
+        """Obtain dictionary composed of pass numbers (keys) and their
+        respective capacitance matrices (values). All capacitance matrices
+        utilize the same values for Lj_nH and onwards in the list of arguments.
 
         Args:
             Lj_nH (float): Junction inductance (in nH)
@@ -401,8 +516,8 @@ class QQ3DRenderer(QAnsysRenderer):
         return RES
 
     def plot_convergence_main(self, RES: pd.DataFrame):
-        """
-        Plot alpha and frequency versus pass number, as well as convergence of delta (in %).
+        """Plot alpha and frequency versus pass number, as well as convergence
+        of delta (in %).
 
         Args:
             RES (pd.DataFrame): Dictionary of capacitance matrices versus pass number, organized as pandas table.
@@ -413,8 +528,8 @@ class QQ3DRenderer(QAnsysRenderer):
             return _plot_q3d_convergence_main(eprd, RES)
 
     def plot_convergence_chi(self, RES: pd.DataFrame):
-        """
-        Plot convergence of chi and g, both in MHz, as a function of pass number.
+        """Plot convergence of chi and g, both in MHz, as a function of pass
+        number.
 
         Args:
             RES (pd.DataFrame): Dictionary of capacitance matrices versus pass number, organized as pandas table.
@@ -423,8 +538,7 @@ class QQ3DRenderer(QAnsysRenderer):
         return _plot_q3d_convergence_chi_f(RES)
 
     def add_q3d_design(self, name: str, connect: bool = True):
-        """
-        Add a q3d design with the given name to the project.
+        """Add a q3d design with the given name to the project.
 
         Args:
             name (str): Name of the new q3d design
@@ -444,8 +558,9 @@ class QQ3DRenderer(QAnsysRenderer):
                             "first before creating a new design . Use self.connect_ansys()")
 
     def activate_q3d_design(self, name: str = "MetalQ3ds"):
-        """Add a q3d design with the given name to the project.  If the design exists, that will be added WITHOUT
-        altering the suffix of the design name.
+        """Add a q3d design with the given name to the project.  If the design
+        exists, that will be added WITHOUT altering the suffix of the design
+        name.
 
         Args:
             name (str): Name of the new q3d design

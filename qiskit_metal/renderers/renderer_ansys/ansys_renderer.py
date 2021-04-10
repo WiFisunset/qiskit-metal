@@ -24,6 +24,7 @@ import pandas as pd
 from numpy.linalg import norm
 from collections import defaultdict
 from platform import system
+from scipy.spatial import distance
 
 import shapely
 import pyEPR as epr
@@ -65,9 +66,9 @@ def good_fillet_idxs(coords: list,
 
 
 def get_clean_name(name: str) -> str:
-    """
-    Create a valid variable name from the given one by removing having it begin with a letter or underscore
-    followed by an unlimited string of letters, numbers, and underscores.
+    """Create a valid variable name from the given one by removing having it
+    begin with a letter or underscore followed by an unlimited string of
+    letters, numbers, and underscores.
 
     Args:
         name (str): Initial, possibly unusable, string to be modified.
@@ -83,9 +84,8 @@ def get_clean_name(name: str) -> str:
 
 
 class QAnsysRenderer(QRenderer):
-    """
-    Extends QRenderer to export designs to Ansys using pyEPR.
-    The methods which a user will need for Ansys export should be found within this class.
+    """Extends QRenderer to export designs to Ansys using pyEPR. The methods
+    which a user will need for Ansys export should be found within this class.
 
     Default Options:
         * Lj: '10nH' -- Lj has units of nanoHenries (nH)
@@ -98,6 +98,11 @@ class QAnsysRenderer(QRenderer):
         * ansys_file_extension: '.aedt' -- Ansys file extension for 2016 version and newer
         * x_buffer_width_mm: 0.2 -- Buffer between max/min x and edge of ground plane, in mm
         * y_buffer_width_mm: 0.2 -- Buffer between max/min y and edge of ground plane, in mm
+        * wb_threshold:'400um' -- the minimum distance between two vertices of a path for a
+            wirebond to be added.
+        * wb_offset:'0um' -- offset distance for wirebond placement (along the direction
+            of the cpw)
+        * wb_size: 3 -- scalar which controls the width of the wirebond (wb_size * path['width'])
     """
 
     #: Default options, over-written by passing ``options` dict to render_options.
@@ -117,6 +122,9 @@ class QAnsysRenderer(QRenderer):
         # bounding_box_scale_y = 1.2, # Ratio of 'main' chip length to bounding box length
         x_buffer_width_mm=0.2,  # Buffer between max/min x and edge of ground plane, in mm
         y_buffer_width_mm=0.2,  # Buffer between max/min y and edge of ground plane, in mm
+        wb_threshold = '400um',
+        wb_offset = '0um',
+        wb_size = 5,
         plot_ansys_fields_options = Dict(
             name="NAME:Mag_E1",
             UserSpecifyName='0',
@@ -156,19 +164,20 @@ class QAnsysRenderer(QRenderer):
     # Keeping this as a cls dict so could be edited before renderer is instantiated.
     # To update component.options junction table.
 
-    element_table_data = dict(junction=dict(
-        inductance=default_options['Lj'],
-        capacitance=default_options['Cj'],
-        resistance=default_options['_Rj'],
-        mesh_kw_jj=parse_units(default_options['max_mesh_length_jj'])))
+    element_table_data = dict(path=dict(wire_bonds=False),
+                              junction=dict(
+                                  inductance=default_options['Lj'],
+                                  capacitance=default_options['Cj'],
+                                  resistance=default_options['_Rj'],
+                                  mesh_kw_jj=parse_units(
+                                      default_options['max_mesh_length_jj'])))
 
     def __init__(self,
                  design: 'QDesign',
                  initiate=True,
                  render_template: Dict = None,
                  render_options: Dict = None):
-        """
-        Create a QRenderer for Ansys.
+        """Create a QRenderer for Ansys.
 
         Args:
             design (QDesign): Use QGeometry within QDesign to obtain elements for Ansys.
@@ -190,8 +199,8 @@ class QAnsysRenderer(QRenderer):
                    path: str = None,
                    executable: str = 'reg_ansysedt.exe',
                    path_var: str = 'ANSYSEM_ROOT202'):
-        """
-        Open a session of Ansys. Default is version 2020 R2, but can be overridden.
+        """Open a session of Ansys. Default is version 2020 R2, but can be
+        overridden.
 
         Args:
             path (str): Path to the Ansys executable. Defaults to None
@@ -225,9 +234,9 @@ class QAnsysRenderer(QRenderer):
                       project_path: str = None,
                       project_name: str = None,
                       design_name: str = None):
-        """
-        If none of the optional parameters are provided: connects to the Ansys COM, then
-        checks for, and grab if present, an active project, design, and design setup.
+        """If none of the optional parameters are provided: connects to the
+        Ansys COM, then checks for, and grab if present, an active project,
+        design, and design setup.
 
         If the optional parameters are provided: if present, opens the project file and design in Ansys.
 
@@ -235,7 +244,6 @@ class QAnsysRenderer(QRenderer):
             project_path (str, optional): Path without file name
             project_name (str, optional): File name (with or without extension)
             design_name (str, optional): Name of the default design to open from the project file
-
         """
         if not system() == 'Windows':
             self.logger.warning(
@@ -270,9 +278,7 @@ class QAnsysRenderer(QRenderer):
             raise error
 
     def disconnect_ansys(self):
-        """
-        Disconnect Ansys.
-        """
+        """Disconnect Ansys."""
         if self.pinfo:
             self.pinfo.disconnect()
         else:
@@ -280,14 +286,12 @@ class QAnsysRenderer(QRenderer):
                 'This renderer appears to be already disconnected from Ansys')
 
     def new_ansys_project(self):
-        """
-        Creates a new empty project in Ansys.
-        """
+        """Creates a new empty project in Ansys."""
         here = HfssApp()
         here.get_app_desktop().new_project()
 
     def connect_ansys_design(self, design_name: str = None):
-        """ Used to switch between existing designs.
+        """Used to switch between existing designs.
 
         Args:
             design_name (str, optional): Name within the active project. Defaults to None.
@@ -327,7 +331,7 @@ class QAnsysRenderer(QRenderer):
 
     @property
     def modeler(self):
-        """ The modeler from pyEPR HfssModeler. 
+        """The modeler from pyEPR HfssModeler.
 
         Returns:
             pyEPR.ansys.HfssModeler: Reference to  design.HfssModeler in Ansys.
@@ -353,24 +357,25 @@ class QAnsysRenderer(QRenderer):
         PlotGeomInfo_2: str = None,
         PlotGeomInfo_3: int = None,
     ):
-        """Plot fields in Ansys. The options are populated by the component's options.
+        """Plot fields in Ansys. The options are populated by the component's
+        options.
 
         Args:
             object_name (str): Used to plot on faces of.
             name (str, optional): "NAME:<PlotName>" Defaults to None.
             UserSpecifyName (int, optional): 0 if default name for plot is used, 1 otherwise. Defaults to None.
             UserSpecifyFolder (int, optional): 0 if default folder for plot is used, 1 otherwise. Defaults to None.
-            QuantityName (str, optional): Type of plot to create. Possible values are: 
+            QuantityName (str, optional): Type of plot to create. Possible values are:
             Mesh plots: "Mesh"
-            Field plots: "Mag_E", "Mag_H", "Mag_Jvol", "Mag_Jsurf","ComplexMag_E", "ComplexMag_H", 
-            "ComplexMag_Jvol", "ComplexMag_Jsurf", "Vector_E", "Vector_H", "Vector_Jvol", "Vector_Jsurf", 
+            Field plots: "Mag_E", "Mag_H", "Mag_Jvol", "Mag_Jsurf","ComplexMag_E", "ComplexMag_H",
+            "ComplexMag_Jvol", "ComplexMag_Jsurf", "Vector_E", "Vector_H", "Vector_Jvol", "Vector_Jsurf",
             "Vector_RealPoynting","Local_SAR", "Average_SAR". Defaults to None.
-            PlotFolder (str, optional): Name of the folder to which the plot should be added. Possible values 
+            PlotFolder (str, optional): Name of the folder to which the plot should be added. Possible values
             are: "E Field",  "H Field", "Jvol", "Jsurf", "SARField", and "MeshPlots". Defaults to None.
             StreamlinePlot (bool, optional): Passed to CreateFieldPlot. Defaults to None.
             AdjacentSidePlot (bool, optional): Passed to CreateFieldPlot. Defaults to None.
             FullModelPlot (bool, optional): Passed to CreateFieldPlot. Defaults to None.
-            IntrinsicVar (str, optional): Formatted string that specifies the frequency and phase 
+            IntrinsicVar (str, optional): Formatted string that specifies the frequency and phase
             at which to make the plot.  For example: "Freq='1GHz' Phase='30deg'" Defaults to None.
             PlotGeomInfo_0 (int, optional): 0th entry in list for "PlotGeomInfo:=", <PlotGeomArray>. Defaults to None.
             PlotGeomInfo_1 (str, optional): 1st entry in list for "PlotGeomInfo:=", <PlotGeomArray>. Defaults to None.
@@ -378,7 +383,7 @@ class QAnsysRenderer(QRenderer):
             PlotGeomInfo_3 (int, optional): 3rd entry in list for "PlotGeomInfo:=", <PlotGeomArray>. Defaults to None.
 
         Returns:
-            NoneType: Return information from oFieldsReport.CreateFieldPlot(). 
+            NoneType: Return information from oFieldsReport.CreateFieldPlot().
             The method CreateFieldPlot() always returns None.
         """
         if not self.pinfo:
@@ -474,9 +479,8 @@ class QAnsysRenderer(QRenderer):
         return oFieldsReport.CreateFieldPlot(args_list, "Field")
 
     def plot_ansys_delete(self, names: list):
-        """
-        Delete plots from modeler window in Ansys.
-        Does not throw an error if names are missing. 
+        """Delete plots from modeler window in Ansys. Does not throw an error
+        if names are missing.
 
         Can give multiple names, for example:
         hfss.plot_ansys_delete(['Mag_E1', 'Mag_E1_2'])
@@ -489,8 +493,7 @@ class QAnsysRenderer(QRenderer):
         return oFieldsReport.DeleteFieldPlot(names)
 
     def add_message(self, msg: str, severity: int = 0):
-        """
-        Add message to Message Manager box in Ansys.
+        """Add message to Message Manager box in Ansys.
 
         Args:
             msg (str): Message to add.
@@ -499,14 +502,14 @@ class QAnsysRenderer(QRenderer):
         self.pinfo.design.add_message(msg, severity)
 
     def save_screenshot(self, path: str = None, show: bool = True):
-        """Save the screenshot. 
+        """Save the screenshot.
 
         Args:
             path (str, optional): Path to save location.  Defaults to None.
             show (bool, optional): Whether or not to display the screenshot.  Defaults to True.
 
         Returns:
-            pathlib.WindowsPath: path to png formatted screenshot. 
+            pathlib.WindowsPath: path to png formatted screenshot.
         """
         try:
             return self.pinfo.design.save_screenshot(path, show)
@@ -518,10 +521,10 @@ class QAnsysRenderer(QRenderer):
                       selection: Union[list, None] = None,
                       open_pins: Union[list, None] = None,
                       box_plus_buffer: bool = True):
-        """
-        Initiate rendering of components in design contained in selection, assuming they're valid.
-        Components are rendered before the chips they reside on, and subtraction of negative shapes
-        is performed at the very end.
+        """Initiate rendering of components in design contained in selection,
+        assuming they're valid. Components are rendered before the chips they
+        reside on, and subtraction of negative shapes is performed at the very
+        end.
 
         Chip_subtract_dict consists of component names (keys) and a set of all elements within each component that
         will eventually be subtracted from the ground plane. Add objects that are perfect conductors and/or have
@@ -540,7 +543,7 @@ class QAnsysRenderer(QRenderer):
             selection (Union[list, None], optional): List of components to render. Defaults to None.
             open_pins (Union[list, None], optional): List of tuples of pins that are open. Defaults to None.
             box_plus_buffer (bool): Either calculate a bounding box based on the location of rendered geometries
-                                     or use chip size from design class. 
+                                     or use chip size from design class.
         """
         self.chip_subtract_dict = defaultdict(set)
         self.assign_perfE = []
@@ -554,9 +557,8 @@ class QAnsysRenderer(QRenderer):
         self.add_mesh()
 
     def render_tables(self, selection: Union[list, None] = None):
-        """
-        Render components in design grouped by table type (path, poly, or junction).
-        Start by initializing chip boundaries for later use.
+        """Render components in design grouped by table type (path, poly, or
+        junction). Start by initializing chip boundaries for later use.
 
         Args:
             selection (Union[list, None], optional): List of components to render. (Default: None)
@@ -572,8 +574,8 @@ class QAnsysRenderer(QRenderer):
     def render_components(self,
                           table_type: str,
                           selection: Union[list, None] = None):
-        """
-        Render individual components by breaking them down into individual elements.
+        """Render individual components by breaking them down into individual
+        elements.
 
         Args:
             table_type (str): Table type (poly, path, or junction).
@@ -621,11 +623,14 @@ class QAnsysRenderer(QRenderer):
         for _, qgeom in table.iterrows():
             self.render_element(qgeom, bool(table_type == 'junction'))
 
+        if table_type == 'path':
+            self.auto_wirebonds(table)
+
     def render_element(self, qgeom: pd.Series, is_junction: bool):
-        """
-        Render an individual shape whose properties are listed in a row of QGeometry table.
-        Junction elements are handled separately from non-junction elements, as the former
-        consist of two rendered shapes, not just one.
+        """Render an individual shape whose properties are listed in a row of
+        QGeometry table. Junction elements are handled separately from non-
+        junction elements, as the former consist of two rendered shapes, not
+        just one.
 
         Args:
             qgeom (pd.Series): GeoSeries of element properties.
@@ -690,8 +695,7 @@ class QAnsysRenderer(QRenderer):
         poly_jj.show_direction = True
 
     def render_element_poly(self, qgeom: pd.Series):
-        """
-        Render a closed polygon.
+        """Render a closed polygon.
 
         Args:
             qgeom (pd.Series): GeoSeries of element properties.
@@ -759,8 +763,7 @@ class QAnsysRenderer(QRenderer):
             self.assign_perfE.append(name)
 
     def render_element_path(self, qgeom: pd.Series):
-        """
-        Render a path-type element.
+        """Render a path-type element.
 
         Args:
             qgeom (pd.Series): GeoSeries of element properties.
@@ -843,8 +846,7 @@ class QAnsysRenderer(QRenderer):
     def render_chips(self,
                      draw_sample_holder: bool = True,
                      box_plus_buffer: bool = True):
-        """
-        Render chips using info from design.get_chip_size method.
+        """Render chips using info from design.get_chip_size method.
 
         Renders the ground plane of this chip (if one is present).
         Renders the wafer of the chip.
@@ -852,7 +854,7 @@ class QAnsysRenderer(QRenderer):
         Args:
             draw_sample_holder (bool, optional): Option to draw vacuum box around chip. Defaults to True.
             box_plus_buffer (bool): Either calculate a bounding box based on the location of rendered geometries
-                                     or use chip size from design class. 
+                                     or use chip size from design class.
         """
         ansys_options = dict(transparency=0.0)
 
@@ -968,9 +970,10 @@ class QAnsysRenderer(QRenderer):
                 self.assign_perfE.append(f'ground_{chip_name}_plane')
 
     def add_endcaps(self, open_pins: Union[list, None] = None):
-        """
-        Create endcaps (rectangular cutouts) for all pins in the list open_pins and add them to chip_subtract_dict.
-        Each element in open_pins takes on the form (component_name, pin_name) and corresponds to a single pin.
+        """Create endcaps (rectangular cutouts) for all pins in the list
+        open_pins and add them to chip_subtract_dict. Each element in open_pins
+        takes on the form (component_name, pin_name) and corresponds to a
+        single pin.
 
         Args:
             open_pins (Union[list, None], optional): List of tuples of pins that are open. Defaults to None.
@@ -998,9 +1001,8 @@ class QAnsysRenderer(QRenderer):
             self.chip_subtract_dict[pin_dict['chip']].add(endcap_name)
 
     def subtract_from_ground(self):
-        """
-        For each chip, subtract all "negative" shapes residing on its surface if any such shapes exist.
-        """
+        """For each chip, subtract all "negative" shapes residing on its
+        surface if any such shapes exist."""
         for chip, shapes in self.chip_subtract_dict.items():
             if shapes:
                 import pythoncom
@@ -1020,19 +1022,72 @@ class QAnsysRenderer(QRenderer):
                     raise error
 
     def add_mesh(self):
-        """
-        Add mesh to all elements in self.assign_mesh.
-        """
+        """Add mesh to all elements in self.assign_mesh."""
         if self.assign_mesh:
             self.modeler.mesh_length(
                 'small_mesh',
                 self.assign_mesh,
                 MaxLength=self._options['max_mesh_length_jj'])
 
+    #Still implementing
+    def auto_wirebonds(self, table):
+        """
+        Adds wirebonds to the Ansys model for path elements where;
+        subtract = True and wire_bonds = True.
+        Uses render options for determining of the;
+        * wb_threshold -- the minimum distance between two vertices of a path for a
+            wirebond to be added.
+        * wb_offset -- offset distance for wirebond placement (along the direction
+            of the cpw)
+        * wb_size -- controls the width of the wirebond (wb_size * path['width'])
+        """
+        norm_z = np.array([0, 0, 1])
+
+        wb_threshold = parse_units(self._options['wb_threshold'])
+        wb_offset = parse_units(self._options['wb_offset'])
+
+        #selecting only the qgeometry which meet criteria
+        wb_table = table.loc[table['hfss_wire_bonds'] == True]
+        wb_table2 = wb_table.loc[wb_table['subtract'] == True]
+
+        #looping through each qgeometry
+        for _, row in wb_table2.iterrows():
+            geom = row['geometry']
+            width = row['width']
+            #looping through the linestring of the path to determine where WBs should be
+            for index, i_p in enumerate(geom.coords[:-1], start=0):
+                j_p = np.asarray(geom.coords[:][index + 1])
+                vert_distance = parse_units(distance.euclidean(i_p, j_p))
+                if vert_distance > wb_threshold:
+                    #Gets number of wirebonds to fit in section of path
+                    wb_count = int(vert_distance // wb_threshold)
+                    #finds the position vector
+                    wb_pos = (j_p - i_p) / (wb_count + 1)
+                    #gets the norm vector for finding the orthonormal of path
+                    wb_vec = wb_pos / np.linalg.norm(wb_pos)
+                    #finds the orthonormal (for orientation)
+                    wb_perp = np.cross(norm_z, wb_vec)[:2]
+                    #finds the first wirebond to place (rest are in the loop)
+                    wb_pos_step = parse_units(wb_pos + i_p) + (wb_vec *
+                                                               wb_offset)
+                    #Other input values could be modified, kept to minimal selection for automation
+                    #for the time being. Loops to place N wirebonds based on length of path section.
+                    for wb_i in range(wb_count):
+                        self.modeler.draw_wirebond(
+                            pos=wb_pos_step + parse_units(wb_pos * wb_i),
+                            ori=wb_perp,
+                            width=parse_units(width * self._options['wb_size']),
+                            height=parse_units(width *
+                                               self._options['wb_size']),
+                            z=0,
+                            wire_diameter='0.015mm',
+                            NumSides=6,
+                            name='g_wb',
+                            material='pec',
+                            solve_inside=False)
+
     def clean_active_design(self):
-        """
-        Remove all elements from Ansys Modeler.
-        """
+        """Remove all elements from Ansys Modeler."""
         if self.pinfo:
             if self.pinfo.get_all_object_names():
                 project_name = self.pinfo.project_name
